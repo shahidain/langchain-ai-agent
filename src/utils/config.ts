@@ -31,6 +31,13 @@ export const SERVER_CONFIG = {
 };
 
 /**
+ * MCP configuration
+ */
+export const MCP_CONFIG = {
+  url: process.env.MCP_URL || 'http://localhost:8000'
+};
+
+/**
  * Validate that required environment variables are set
  */
 export function validateEnvironment(): void {

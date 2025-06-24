@@ -3,6 +3,10 @@ const SERVER_URL = 'http://localhost:3000';
 // Check server status on page load
 window.onload = function() {
   checkServerStatus();
+  checkMCPStatus();
+  
+  // Set up periodic MCP status refresh every 10 seconds
+  setInterval(checkMCPStatus, 10000);
 };
 
 async function checkServerStatus() {
@@ -21,6 +25,54 @@ async function checkServerStatus() {
     const statusDiv = document.getElementById('status');
     statusDiv.className = 'status offline';
     statusDiv.textContent = '❌ Server Offline - Make sure to run: npm run dev';
+  }
+}
+
+async function checkMCPStatus() {
+  try {
+    const response = await fetch(`${SERVER_URL}/mcp/status`);
+    const data = await response.json();
+    
+    const mcpStatusDiv = document.getElementById('mcp-status');
+    const mcpSessionDiv = document.getElementById('mcp-session');
+    
+    if (response.ok && data.mcp) {
+      // Update connection status
+      if (data.mcp.connected) {
+        mcpStatusDiv.className = 'status online';
+        mcpStatusDiv.textContent = `✅ MCP Connected - URL: ${data.mcp.mcpUrl}`;
+      } else {
+        mcpStatusDiv.className = 'status offline';
+        mcpStatusDiv.textContent = `❌ MCP Disconnected - URL: ${data.mcp.mcpUrl}`;
+      }
+      
+      // Update session ID
+      if (data.mcp.sessionId) {
+        mcpSessionDiv.className = 'status online';
+        mcpSessionDiv.innerHTML = `<strong>Session ID:</strong> <code>${data.mcp.sessionId}</code>`;
+      } else {
+        mcpSessionDiv.className = 'status offline';
+        mcpSessionDiv.textContent = 'No Session ID available';
+      }
+      
+      // Show reconnection attempts if any
+      if (data.mcp.reconnectAttempts > 0) {
+        mcpStatusDiv.textContent += ` (${data.mcp.reconnectAttempts} reconnect attempts)`;
+      }
+    } else {
+      throw new Error(data.error || 'Failed to get MCP status');
+    }
+  } catch (error) {
+    const mcpStatusDiv = document.getElementById('mcp-status');
+    const mcpSessionDiv = document.getElementById('mcp-session');
+    
+    mcpStatusDiv.className = 'status offline';
+    mcpStatusDiv.textContent = '❌ MCP Status Error - Check server logs';
+    
+    mcpSessionDiv.className = 'status offline';
+    mcpSessionDiv.textContent = 'Session ID unavailable';
+    
+    console.error('MCP Status Error:', error);
   }
 }
 
@@ -96,3 +148,19 @@ document.getElementById('message').addEventListener('keydown', function(e) {
     sendMessage();
   }
 });
+
+// Manual refresh function for MCP status
+async function refreshMCPStatus() {
+  const refreshBtn = document.getElementById('refresh-mcp');
+  if (refreshBtn) {
+    refreshBtn.disabled = true;
+    refreshBtn.textContent = 'Refreshing...';
+  }
+  
+  await checkMCPStatus();
+  
+  if (refreshBtn) {
+    refreshBtn.disabled = false;
+    refreshBtn.textContent = 'Refresh Status';
+  }
+}

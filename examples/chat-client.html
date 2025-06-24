@@ -6,12 +6,21 @@
   <title>LangChain AI Agent Chat</title>
   <link rel="stylesheet" href="style.css">
 </head>
-<body>
-  <div class="container">
+<body>  <div class="container">
     <h1>🤖 LangChain AI Agent Chat</h1>
-    
     <div id="status" class="status offline">
       Checking server status...
+    </div>
+    
+    <div class="mcp-section">
+      <h3>MCP Integration Status</h3>
+      <div id="mcp-status" class="status offline">
+        Checking MCP connection...
+      </div>
+      <div id="mcp-session" class="status offline">
+        Checking session...
+      </div>
+      <button type="button" onclick="refreshMCPStatus()" id="refresh-mcp" class="refresh-btn">Refresh Status</button>
     </div>
     
     <div class="chat-container">
