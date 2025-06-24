@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LangChain AI Agent Chat</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="container">
+    <h1>🤖 LangChain AI Agent Chat</h1>
+    
+    <div id="status" class="status offline">
+      Checking server status...
+    </div>
+    
+    <div class="chat-container">
+      <div class="input-group">
+        <label for="message">Your Message:</label>
+        <textarea id="message" rows="3" placeholder="Ask me anything..."></textarea>
+      </div>
+      
+      <div class="input-group">
+        <label for="systemPrompt">Custom System Prompt (Optional):</label>
+        <textarea id="systemPrompt" rows="2" placeholder="e.g., You are a helpful programming tutor..."></textarea>
+      </div>
+      
+      <button type="button" onclick="sendMessage()" id="sendBtn">Send Message</button>
+    </div>
+
+    <div id="response" class="response">
+      <h3>Response:</h3>
+      <div id="responseText" class="response-text"></div>
+    </div>
+  </div>
+
+  <script src="chat.js"></script>
+</body>
+</html>

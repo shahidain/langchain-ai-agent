@@ -1,0 +1,133 @@
+body {
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 20px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  min-height: 100vh;
+  color: #333;
+}
+
+.container {
+  background: white;
+  border-radius: 15px;
+  padding: 30px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+}
+
+h1 {
+  text-align: center;
+  color: #4a5568;
+  margin-bottom: 30px;
+}
+
+.chat-container {
+  border: 2px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 20px;
+  margin-bottom: 20px;
+  background: #f7fafc;
+}
+
+.input-group {
+  margin-bottom: 15px;
+}
+
+label {
+  display: block;
+  margin-bottom: 5px;
+  font-weight: 600;
+  color: #4a5568;
+}
+
+input, textarea {
+  width: 100%;
+  padding: 12px;
+  border: 2px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 14px;
+  box-sizing: border-box;
+  transition: border-color 0.3s;
+}
+
+input:focus, textarea:focus {
+  outline: none;
+  border-color: #667eea;
+}
+
+button {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border: none;
+  padding: 12px 24px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 16px;
+  font-weight: 600;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+}
+
+button:disabled {
+  background: #a0aec0;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.response {
+  margin-top: 20px;
+  padding: 20px;
+  background: #f0f4f8;
+  border-radius: 8px;
+  border-left: 4px solid #667eea;
+  display: none;
+}
+
+.response.show {
+  display: block;
+}
+
+.response h3 {
+  margin-top: 0;
+  color: #4a5568;
+}
+
+.response-text {
+  line-height: 1.6;
+  color: #2d3748;
+}
+
+.loading {
+  text-align: center;
+  color: #667eea;
+  font-style: italic;
+}
+
+.error {
+  color: #e53e3e;
+  background: #fed7d7;
+  border-left-color: #e53e3e;
+}
+
+.status {
+  text-align: center;
+  margin-bottom: 20px;
+  padding: 10px;
+  border-radius: 5px;
+  font-size: 14px;
+}
+
+.status.online {
+  background: #c6f6d5;
+  color: #22543d;
+}
+
+.status.offline {
+  background: #fed7d7;
+  color: #742a2a;
+}
