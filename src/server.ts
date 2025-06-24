@@ -178,11 +178,15 @@ app.get('/mcp/status', (req, res) => {
       return res.status(503).json({
         error: 'MCP client not initialized'
       });
-    }
+    }    const connectionInfo = client.getConnectionInfo();
+    const availableTools = client.getAvailableTools();
 
-    const connectionInfo = client.getConnectionInfo();
     res.json({
       mcp: connectionInfo,
+      tools: {
+        count: availableTools.length,
+        list: availableTools
+      },
       timestamp: new Date().toISOString()
     });
   } catch (error) {

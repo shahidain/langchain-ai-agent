@@ -1,4 +1,6 @@
 import EventSource from 'eventsource';
+import axios from 'axios';
+import { MCPToolsManager, MCPTool } from './tools';
 /**
  * MCP Message interface based on JSON-RPC 2.0
  */
@@ -22,9 +24,18 @@ export class MCPClient {
   private mcpUrl: string;
   private isConnected: boolean = false;
   private reconnectAttempts: number = 0;
+  private toolsManager: MCPToolsManager;
+  private availableTools: MCPTool[] = [];
+  // Request correlation map for SSE responses
+  private pendingRequests: Map<string, {
+    resolve: (_value: any) => void;
+    reject: (_reason?: any) => void;
+    timestamp: number;
+  }> = new Map();
 
   constructor(mcpUrl: string) {
     this.mcpUrl = mcpUrl;
+    this.toolsManager = new MCPToolsManager(mcpUrl);
   }
 
   /**
@@ -67,35 +78,39 @@ export class MCPClient {
       }
     });
   }
-
   /**
    * Handle incoming SSE messages
    */
   private handleMessage(data: string): void {
     try {
-      const message: MCPMessage = JSON.parse(data);
+      const message = JSON.parse(data);
 
-      // Validate message format
-      if (!this.isValidMCPMessage(message)) {
-        console.warn('⚠️ Invalid MCP message format:', message);
+      // Check if this is a response to one of our requests
+      if (message.id && this.pendingRequests.has(message.id)) {
+        const pendingRequest = this.pendingRequests.get(message.id);
+        if (pendingRequest) {
+          this.pendingRequests.delete(message.id);
+          if (message.error) {
+            pendingRequest.reject(new Error(`MCP Error: ${message.error.message}`));
+          } else {
+            pendingRequest.resolve(message);
+          }
+        }
         return;
       }
 
-      // Extract and store sessionId from the first message
-      if (!this.sessionId && message.params.sessionId) {
-        this.sessionId = message.params.sessionId;
-        console.log(`🔑 Session ID established: ${this.sessionId}`);
+      // Handle incoming tool calls from MCP server
+      if (this.isValidMCPMessage(message)) {
+        // Extract and store sessionId from the first message
+        if (!this.sessionId && message.params.sessionId) {
+          this.sessionId = message.params.sessionId;
+          console.log(`🔑 Session ID established: ${this.sessionId}`);
+          // Automatically fetch available tools when session is established
+          this.fetchToolsAfterSessionEstablished();
+        }
+      } else {
+        console.warn('⚠️ Unknown MCP message format:', message);
       }
-
-      console.log('📨 MCP message received:', {
-        method: message.method,
-        toolName: message.params.name,
-        sessionId: message.params.sessionId,
-        messageId: message.id
-      });
-
-      // Process the tool call
-      this.processToolCall(message);
 
     } catch (error) {
       console.error('❌ Error processing MCP message:', error);
@@ -118,12 +133,26 @@ export class MCPClient {
   }
 
   /**
-   * Process tool call from MCP server
-   */
-  private processToolCall(message: MCPMessage): void {
-    // This method can be extended to handle specific tool calls
-    console.log(`🔧 Processing tool call: ${message.params.name}`);
-    console.log('📋 Arguments:', message.params.arguments);
+   * Automatically fetch tools after session is established
+   */  private async fetchToolsAfterSessionEstablished(): Promise<void> {
+    try {
+      console.log('🔍 Fetching available tools after session establishment...');
+      this.availableTools = await this.toolsManager.fetchAvailableTools(true);
+      console.log(`✅ Successfully fetched ${this.availableTools.length} tools from MCP server`);
+
+      // Log available tools for debugging
+      if (this.availableTools.length > 0) {
+        this.availableTools.forEach(tool => {
+          console.log(`  🔧 Available tool: ${tool.name} - ${tool.description}`);
+        });
+      } else {
+        console.log('  ℹ️ No tools available from MCP server');
+      }
+    } catch (error) {
+      console.error('❌ Failed to fetch tools after session establishment:', error);
+      console.error('  📝 This may indicate an issue with the MCP server or network connectivity');
+      // Don't throw the error - let the connection continue even if tools fetch fails
+    }
   }
 
   /**
@@ -154,6 +183,39 @@ export class MCPClient {
   }
 
   /**
+   * Get available tools from cache
+   */
+  public getAvailableTools(): MCPTool[] {
+    return this.availableTools;
+  }
+
+  /**
+   * Call a tool using the tools manager
+   */
+  public async callTool(toolName: string, toolArguments: object = {}): Promise<any> {
+    if (!this.sessionId) {
+      throw new Error('MCP session not established. Cannot call tools.');
+    }
+    return await this.toolsManager.callTool(toolName, toolArguments);
+  }
+
+  /**
+   * Refresh available tools from MCP server
+   */
+  public async refreshTools(): Promise<MCPTool[]> {
+    if (!this.sessionId) {
+      throw new Error('MCP session not established. Cannot refresh tools.');
+    }
+    try {
+      this.availableTools = await this.toolsManager.fetchAvailableTools(true);
+      return this.availableTools;
+    } catch (error) {
+      console.error('❌ Failed to refresh tools:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Get connection status info
    */
   public getConnectionInfo(): object {
@@ -163,6 +225,134 @@ export class MCPClient {
       mcpUrl: this.mcpUrl,
       reconnectAttempts: this.reconnectAttempts
     };
+  }
+
+  /**
+   * Generate unique request ID
+   */
+  private generateRequestId(): string {
+    return `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  }
+
+  /**
+   * Send tools list request via SSE and wait for response
+   */
+  public async sendToolsListRequest(): Promise<MCPTool[]> {
+    if (!this.sessionId) {
+      throw new Error('MCP session not established');
+    }
+
+    return new Promise((resolve, reject) => {
+      const requestId = this.generateRequestId();
+      const timeout = 30000; // 30 seconds timeout
+
+      // Store the promise resolvers
+      this.pendingRequests.set(requestId, {
+        resolve: (response: any) => {
+          if (response.result && response.result.tools) {
+            resolve(response.result.tools);
+          } else {
+            reject(new Error('Invalid tools list response'));
+          }
+        },
+        reject,
+        timestamp: Date.now()
+      });
+
+      // Prepare the request
+      const request = {
+        jsonrpc: '2.0',
+        method: 'tools/list',
+        params: {
+          sessionId: this.sessionId
+        },
+        id: requestId
+      };
+
+      // Send request via HTTP to /messages endpoint
+      this.sendMessageToMCP(request)
+        .catch((error) => {
+          this.pendingRequests.delete(requestId);
+          reject(error);
+        });
+
+      // Set timeout
+      setTimeout(() => {
+        if (this.pendingRequests.has(requestId)) {
+          this.pendingRequests.delete(requestId);
+          reject(new Error(`Tools list request timeout after ${timeout}ms`));
+        }
+      }, timeout);
+    });
+  }
+
+  /**
+   * Send tool call request via SSE and wait for response
+   */
+  public async sendToolCallRequest(toolName: string, toolArguments: object): Promise<any> {
+    if (!this.sessionId) {
+      throw new Error('MCP session not established');
+    }
+
+    return new Promise((resolve, reject) => {
+      const requestId = this.generateRequestId();
+      const timeout = 60000; // 60 seconds timeout for tool calls
+
+      // Store the promise resolvers
+      this.pendingRequests.set(requestId, {
+        resolve: (response: any) => {
+          if (response.error) {
+            reject(new Error(`Tool call error: ${response.error.message}`));
+          } else {
+            resolve(response.result);
+          }
+        },
+        reject,
+        timestamp: Date.now()
+      });
+
+      // Prepare the request
+      const request = {
+        jsonrpc: '2.0',
+        method: 'tools/call',
+        params: {
+          name: toolName,
+          arguments: toolArguments,
+          sessionId: this.sessionId
+        },
+        id: requestId
+      };
+
+      // Send request via HTTP to /messages endpoint
+      this.sendMessageToMCP(request)
+        .catch((error) => {
+          this.pendingRequests.delete(requestId);
+          reject(error);
+        });
+
+      // Set timeout
+      setTimeout(() => {
+        if (this.pendingRequests.has(requestId)) {
+          this.pendingRequests.delete(requestId);
+          reject(new Error(`Tool call request timeout after ${timeout}ms`));
+        }
+      }, timeout);
+    });
+  }
+  /**
+   * Send message to MCP server via HTTP
+   */
+  private async sendMessageToMCP(message: object): Promise<void> {
+    try {
+      await axios.post(`${this.mcpUrl}/messages`, message, {
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+    } catch (error) {
+      console.error('❌ Failed to send MCP message:', error);
+      throw error;
+    }
   }
 }
 
