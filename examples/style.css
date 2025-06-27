@@ -102,6 +102,109 @@ button:disabled {
   color: #2d3748;
 }
 
+/* Markdown styling for response text */
+.response-text h1, .response-text h2, .response-text h3, 
+.response-text h4, .response-text h5, .response-text h6 {
+  color: #2d3748;
+  margin-top: 1.5em;
+  margin-bottom: 0.5em;
+  font-weight: 600;
+}
+
+.response-text h1 { font-size: 1.5em; border-bottom: 2px solid #e2e8f0; padding-bottom: 0.3em; }
+.response-text h2 { font-size: 1.3em; border-bottom: 1px solid #e2e8f0; padding-bottom: 0.3em; }
+.response-text h3 { font-size: 1.1em; }
+
+.response-text p {
+  margin-bottom: 1em;
+}
+
+.response-text code {
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  border-radius: 3px;
+  padding: 2px 4px;
+  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+  font-size: 0.9em;
+  color: #e53e3e;
+}
+
+.response-text pre {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  padding: 1em;
+  overflow-x: auto;
+  margin: 1em 0;
+}
+
+.response-text pre code {
+  background: none;
+  border: none;
+  padding: 0;
+  color: #2d3748;
+}
+
+.response-text blockquote {
+  border-left: 4px solid #667eea;
+  padding-left: 1em;
+  margin: 1em 0;
+  color: #4a5568;
+  background: #f7fafc;
+  padding: 0.5em 1em;
+  border-radius: 0 4px 4px 0;
+}
+
+.response-text ul, .response-text ol {
+  margin: 1em 0;
+  padding-left: 2em;
+}
+
+.response-text li {
+  margin-bottom: 0.5em;
+}
+
+.response-text strong, .response-text b {
+  font-weight: 600;
+  color: #2d3748;
+}
+
+.response-text em, .response-text i {
+  font-style: italic;
+}
+
+.response-text a {
+  color: #667eea;
+  text-decoration: none;
+}
+
+.response-text a:hover {
+  text-decoration: underline;
+}
+
+.response-text table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 1em 0;
+}
+
+.response-text th, .response-text td {
+  border: 1px solid #e2e8f0;
+  padding: 0.5em;
+  text-align: left;
+}
+
+.response-text th {
+  background: #f7fafc;
+  font-weight: 600;
+}
+
+.response-text hr {
+  border: none;
+  border-top: 2px solid #e2e8f0;
+  margin: 2em 0;
+}
+
 .loading {
   text-align: center;
   color: #667eea;

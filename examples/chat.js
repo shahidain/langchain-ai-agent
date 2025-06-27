@@ -1,5 +1,12 @@
 const SERVER_URL = 'http://localhost:3000';
 
+// Utility function to escape HTML for security
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
 // Check server status on page load
 window.onload = function() {
   checkServerStatus();
@@ -115,11 +122,14 @@ async function sendMessage() {
     const data = await response.json();
     
     if (response.ok) {
+      // Parse the AI response as markdown
+      const parsedResponse = marked.parse(data.response);
+      
       responseText.innerHTML = `
         <strong>Your Question:</strong><br>
-        ${data.message}<br><br>
+        ${escapeHtml(data.message)}<br><br>
         <strong>AI Response:</strong><br>
-        ${data.response.replace(/\n/g, '<br>')}
+        <div class="markdown-content">${parsedResponse}</div>
       `;
     } else {
       throw new Error(data.error || 'Unknown error');

@@ -17,7 +17,7 @@ export interface AgentConfig {
  * Default configuration values from environment variables
  */
 export const DEFAULT_CONFIG: Required<AgentConfig> = {
-  modelName: process.env.MODEL_NAME || 'gpt-3.5-turbo',
+  modelName: process.env.MODEL_NAME || 'gpt-4.1-nano',
   temperature: parseFloat(process.env.TEMPERATURE || '0.7'),
   maxTokens: parseInt(process.env.MAX_TOKENS || '1000', 10),
   apiKey: process.env.OPENAI_API_KEY || ''
