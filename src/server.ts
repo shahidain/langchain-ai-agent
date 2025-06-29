@@ -2,7 +2,6 @@ import express from 'express';
 import cors from 'cors';
 import path from 'path';
 import { Agent } from './agent/langchain-agent';
-import { InfobyteAgent } from './agent/ai-agent';
 import { SERVER_CONFIG, MCP_CONFIG, validateEnvironment } from './utils/config';
 import { initializeMCPClient, getMCPClient } from './mcp/mcp-client';
 
@@ -22,10 +21,6 @@ app.use(express.json());
 // Serve static files from examples directory
 app.use('/static', express.static(path.join(__dirname, '..', 'examples')));
 
-// Initialize the InfobyteAgent (fetches MCP tools)
-const infobyteAgent = new InfobyteAgent();
-infobyteAgent.initialize();
-
 // Initialize the LangChain AI Agent
 const agent = new Agent();
 
@@ -41,7 +36,7 @@ app.get('/health', (req, res) => {
 // Chat endpoint
 app.post('/chat', async(req, res) => {
   try {
-    const { message, systemPrompt } = req.body;
+    const { message } = req.body;
 
     // Validate request
     if (!message) {
@@ -57,14 +52,8 @@ app.post('/chat', async(req, res) => {
       });
     }
 
-    let response: string;
-
-    // Use custom prompt if provided, otherwise use default
-    if (systemPrompt && typeof systemPrompt === 'string') {
-      response = await agent.processWithCustomPrompt(message, systemPrompt);
-    } else {
-      response = await agent.processQuery(message);
-    }
+    let response: string | null;
+    response = await agent.processQuery(message);
 
     res.json({
       message: message,
@@ -89,7 +78,8 @@ app.get('/agent/info', (req, res) => {
     res.json({
       agent: 'LangChain AI Agent',
       version: '1.0.0',
-      ...modelInfo,      endpoints: {
+      ...modelInfo,
+      endpoints: {
         chat: 'POST /chat',
         health: 'GET /health',
         info: 'GET /agent/info',

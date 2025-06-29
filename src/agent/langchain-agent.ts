@@ -2,7 +2,7 @@ import { ChatOpenAI } from '@langchain/openai';
 import { ChatPromptTemplate } from '@langchain/core/prompts';
 import { StringOutputParser } from '@langchain/core/output_parsers';
 import { DynamicStructuredTool } from '@langchain/core/tools';
-import { AgentExecutor, createToolCallingAgent } from 'langchain/agents';
+// import { AgentExecutor, createToolCallingAgent } from 'langchain/agents';
 import { DEFAULT_CONFIG } from '../utils/config';
 import { getMCPClient } from '../mcp/mcp-client';
 import { MCPTool } from '../mcp/tools';
@@ -229,103 +229,28 @@ Be helpful and accurate in your responses.`;
   }  /**
    * Process a user input and return a response
    */
-  async processQuery(input: string): Promise<string> {
+  async processQuery(input: string): Promise<string | null> {
     try {
-      // Update available MCP tools
-      await this.updateAvailableTools();      // If we have tools, use the agent executor
-      if (this.langChainTools.length > 0) {
-        console.log(`🤖 Using agent with ${this.langChainTools.length} tools`);
+      await this.updateAvailableTools();
+      const toolList = this.tools.map(t => `- ${t.name}: ${t.description}`).join('\n');
+      const systemPrompt = `You are an AI assistant. You have access to the following MCP tools:
+      ${toolList}
+      Given a user request, select the most appropriate tool and extract the correct arguments.
+      Return a JSON object in this format:{{"tool": "<tool_name>","args": {{ ... }}}}
+      If no tool is available then reply your best capable answer`;
 
-        const systemPrompt = this.buildSystemPromptWithTools();
-        const prompt = ChatPromptTemplate.fromMessages([
-          ['system', systemPrompt],
-          ['human', '{input}'],
-          ['placeholder', '{agent_scratchpad}']
-        ]);
-
-        const agent = await createToolCallingAgent({
-          llm: this.llm,
-          tools: this.langChainTools,
-          prompt
-        });
-
-        const agentExecutor = new AgentExecutor({
-          agent,
-          tools: this.langChainTools,
-          verbose: false,
-          maxIterations: 2, // Allow for tool call + LLM reasoning
-          returnIntermediateSteps: true // Capture tool results for debugging
-        });
-
-        console.log('🚀 Invoking agent executor with input:', input);
-        const result = await agentExecutor.invoke({
-          input: input
-        });
-        console.log('🎯 Agent execution completed. Output:', result.output);
-        console.log('🔍 Intermediate steps:', result.intermediateSteps);
-
-        // If we have a proper output from the LLM, use it (this includes LLM reasoning)
-        if (result.output && result.output.trim() !== '') {
-          console.log('✅ Returning LLM-generated response:', result.output);
-          return result.output;
-        }
-
-        // Only fall back to tool results if LLM didn't provide output
-        if (result.intermediateSteps && result.intermediateSteps.length > 0) {
-          const lastStep = result.intermediateSteps[result.intermediateSteps.length - 1];
-          if (lastStep && lastStep.observation) {
-            console.log('⚠️ LLM provided no output, falling back to raw tool result:', lastStep.observation);
-
-            // Try to parse if it's a JSON string with error
-            try {
-              const parsed = JSON.parse(lastStep.observation);
-              if (parsed.error) {
-                console.log('⚠️ Tool returned error:', parsed.message);
-                return `Tool execution failed: ${parsed.message}`;
-              }
-            } catch {
-              // Not JSON or not an error, treat as successful result
-            }
-
-            // Return raw tool result as last resort
-            return `Tool executed successfully. Result: ${lastStep.observation}`;
-          }
-        }
-
-        // Fallback if no tool results and no output
-        console.log('⚠️ No usable results from agent execution');
-        return 'I was able to execute the requested action, but the response processing was incomplete. Please check the tool execution logs above for the actual results.';
-      } else {
-        // Fallback to simple prompt when no tools available
-        console.log('� No tools available, using simple prompt...');
-        const systemPrompt = this.buildSystemPromptWithTools();
-        const promptTemplate = ChatPromptTemplate.fromMessages([
-          ['system', systemPrompt],
-          ['human', '{input}']
-        ]);
-
-        const chain = promptTemplate.pipe(this.llm).pipe(this.outputParser);
-        const response = await chain.invoke({ input });
-        return response;
-      }
+      const llm = new ChatOpenAI({ temperature: 0 });
+      const prompt = ChatPromptTemplate.fromMessages([
+        ['system', systemPrompt],
+        ['human', '{input}']
+      ]);
+      const outputParser = new StringOutputParser();
+      const chain = prompt.pipe(llm).pipe(outputParser);
+      const llmResponse = await chain.invoke({ input });
+      return llmResponse;
     } catch (error) {
       console.error('Error processing input:', error);
-
-      // Fallback to simple prompt if MCP integration fails
-      console.log('🔄 Falling back to simple prompt due to error...');
-      try {
-        const fallbackTemplate = ChatPromptTemplate.fromTemplate(
-          'You are a helpful AI assistant. {input}'
-        );
-        const fallbackChain = fallbackTemplate.pipe(this.llm).pipe(this.outputParser);
-        const fallbackResponse = await fallbackChain.invoke({
-          input: input
-        });
-        return fallbackResponse;
-      } catch (fallbackError) {
-        console.error('Error in fallback processing:', fallbackError);
-        throw new Error(`Failed to process input: ${error instanceof Error ? error.message : 'Unknown error'}`);
-      }
+      return null;
     }
   }
 
