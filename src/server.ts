@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import path from 'path';
 import { Agent } from './agent/langchain-agent';
+import { InfobyteAgent } from './agent/ai-agent';
 import { SERVER_CONFIG, MCP_CONFIG, validateEnvironment } from './utils/config';
 import { initializeMCPClient, getMCPClient } from './mcp/mcp-client';
 
@@ -21,7 +22,11 @@ app.use(express.json());
 // Serve static files from examples directory
 app.use('/static', express.static(path.join(__dirname, '..', 'examples')));
 
-// Initialize the AI Agent
+// Initialize the InfobyteAgent (fetches MCP tools)
+const infobyteAgent = new InfobyteAgent();
+infobyteAgent.initialize();
+
+// Initialize the LangChain AI Agent
 const agent = new Agent();
 
 // Health check endpoint
