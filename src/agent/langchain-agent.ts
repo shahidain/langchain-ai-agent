@@ -1,11 +1,12 @@
 import { ChatOpenAI } from '@langchain/openai';
 import { ChatPromptTemplate } from '@langchain/core/prompts';
 import { StringOutputParser } from '@langchain/core/output_parsers';
-import { DynamicTool } from '@langchain/core/tools';
+import { DynamicStructuredTool } from '@langchain/core/tools';
 import { AgentExecutor, createToolCallingAgent } from 'langchain/agents';
 import { DEFAULT_CONFIG } from '../utils/config';
 import { getMCPClient } from '../mcp/mcp-client';
 import { MCPTool } from '../mcp/tools';
+import { z, ZodObject } from 'zod';
 
 /**
  * A minimal AI Agent using LangChain and OpenAI
@@ -14,7 +15,7 @@ export class Agent {
   private llm: ChatOpenAI;
   private outputParser: StringOutputParser;
   private tools: MCPTool[] = [];
-  private langChainTools: DynamicTool[] = [];
+  private langChainTools: DynamicStructuredTool[] = [];
 
   constructor() {
     // Initialize the OpenAI LLM
@@ -120,21 +121,23 @@ export class Agent {
     // Fallback: use the first property
     const firstParam = propertyNames[0];
     console.log(`📋 Fallback: mapping input to first parameter: ${firstParam}`);
-    return { [firstParam]: input.trim() };
+    return { [firstParam]: input?.trim() };
   }
 
   /**
-   * Convert MCP tools to LangChain DynamicTools
+   * Convert MCP tools to LangChain DynamicStructuredTool
    */
-  private convertMCPToolsToLangChain(): DynamicTool[] {
+  private convertMCPToolsToLangChain(): DynamicStructuredTool[] {
     return this.tools.map(mcpTool => {
-      return new DynamicTool({
+      const zodSchema = this.jsonSchemaToZod(mcpTool.inputSchema);
+      return new DynamicStructuredTool({
         name: mcpTool.name,
         description: mcpTool.description,
-        func: async(input: string) => {
+        schema: zodSchema,
+        func: async(input: any) => {
           const callId = Date.now() + Math.random().toString(36).substr(2, 9);
           try {
-            console.log(`🔧 [${callId}] Invoking MCP tool: ${mcpTool.name} with raw input: "${input}"`);
+            console.log(`🔧 [${callId}] Invoking MCP tool: ${mcpTool.name} with structured input:`, input);
             const mcpClient = getMCPClient();
             if (!mcpClient) {
               throw new Error('MCP client not available');
@@ -144,12 +147,11 @@ export class Agent {
               throw new Error('MCP client not connected');
             }
 
-            // Use schema-based argument parsing
-            const args = this.parseArgumentsWithSchema(input, mcpTool.inputSchema);
-            console.log(`📋 [${callId}] Schema-parsed args for ${mcpTool.name}:`, args);
+            // Input is already parsed by Zod schema, use it directly
+            console.log(`📋 [${callId}] Using structured args for ${mcpTool.name}:`, input);
 
-            console.log(`📋 [${callId}] Calling tool with args:`, args);
-            const result = await mcpClient.callTool(mcpTool.name, args);
+            console.log(`📋 [${callId}] Calling tool with args:`, input);
+            const result = await mcpClient.callTool(mcpTool.name, input);
             console.log(`✅ [${callId}] Tool ${mcpTool.name} result:`, result);
 
             // Return result as string for the agent
@@ -200,19 +202,20 @@ export class Agent {
 You have access to the following tools. Use them when they can help answer the user's question:
 ${detailedToolsList}
 
-INSTRUCTIONS:
-1. If the user's question can be answered with available tools, use the appropriate tool ONCE
-2. After getting the tool result, provide your final answer based on that result
-3. Do NOT call the same tool multiple times unless absolutely necessary
-4. If a tool returns an error or is unavailable, acknowledge this and provide the best answer you can without that tool
-5. When a tool fails, explain what you were trying to do and provide alternative information if possible
-6. Always aim to provide a complete and helpful response to the user, whether tools succeed or fail
+CRITICAL INSTRUCTIONS:
+1. You can ONLY call ONE tool per request - never call multiple tools or chain tool calls
+2. Choose the MOST appropriate single tool for the user's request
+3. After getting the tool result, provide your final answer based ONLY on that result
+4. Do NOT attempt to call additional tools after the first one
+5. If a tool returns an error, acknowledge it and stop - do not try other tools
+6. If no single tool can answer the request completely, use the best available tool and explain any limitations
+
+IMPORTANT: You are limited to exactly ONE tool call per user request. Make it count.
 
 When a tool is unavailable or returns an error:
-- Acknowledge the limitation
-- Provide any relevant information you know from your training data
-- Suggest alternative approaches if applicable
-- Still try to be as helpful as possible
+- Acknowledge the limitation briefly
+- Do NOT attempt to call other tools as alternatives
+- Provide a direct response based on the available information
 
 Be helpful and accurate in your responses.`;
 
@@ -243,8 +246,8 @@ Be helpful and accurate in your responses.`;
         const agentExecutor = new AgentExecutor({
           agent,
           tools: this.langChainTools,
-          verbose: true,
-          maxIterations: 3,
+          verbose: false,
+          maxIterations: 1, // Limit to single tool call to prevent chaining
           returnIntermediateSteps: false
         });
 
@@ -255,7 +258,7 @@ Be helpful and accurate in your responses.`;
         console.log('🎯 Agent execution completed. Output:', result.output);
 
         // Check if the agent stopped due to max iterations
-        if (!result.output || result.output.trim() === '') {
+        if (!result.output || result.output?.trim() === '') {
           console.log('⚠️ Agent may have stopped due to max iterations, using tool results');
           // Try to extract meaningful response from intermediate steps if available
           return 'I was able to execute the requested action, but the response processing was incomplete. Please check the tool execution logs above for the actual results.';
@@ -326,5 +329,32 @@ Be helpful and accurate in your responses.`;
       model: this.llm.modelName,
       temperature: this.llm.temperature
     };
+  }
+
+  jsonSchemaToZod(jsonSchema: any): ZodObject<any> {
+    const shape: Record<string, any> = {};
+    for (const [key, prop] of Object.entries(jsonSchema.properties || {})) {
+      const propObj = prop as any; // Type assertion to fix 'unknown' type
+      let field: any = propObj.type === 'string'
+        ? z.string()
+        : propObj.type === 'number'
+          ? z.number()
+          : propObj.type === 'boolean'
+            ? z.boolean()
+            : z.any();
+
+      if (propObj.description) {
+        field = field.describe(propObj.description);
+      }
+
+      if ((jsonSchema.required || []).includes(key)) {
+        // do nothing, already required
+      } else {
+        field = field.optional();
+      }
+
+      shape[key] = field;
+    }
+    return z.object(shape);
   }
 }
