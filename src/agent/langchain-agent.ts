@@ -203,14 +203,20 @@ You have access to the following tools. Use them when they can help answer the u
 ${detailedToolsList}
 
 CRITICAL INSTRUCTIONS:
-1. You can ONLY call ONE tool per request - never call multiple tools or chain tool calls
-2. Choose the MOST appropriate single tool for the user's request
-3. After getting the tool result, provide your final answer based ONLY on that result
-4. Do NOT attempt to call additional tools after the first one
-5. If a tool returns an error, acknowledge it and stop - do not try other tools
-6. If no single tool can answer the request completely, use the best available tool and explain any limitations
+1. You can ONLY call ONE tool per request - never call multiple tools or retry with different arguments
+2. Carefully parse the user's request to extract the correct parameters BEFORE making the tool call
+3. If the user says "fetch 15 products and skip first 5", use: {{"skip": 5, "limit": 15}}
+4. If the user says "get 8 products starting from 6th", use: {{"skip": 5, "limit": 8}}
+5. After calling a tool and getting results, provide a thoughtful analysis and answer based on those results
+6. Do NOT return raw tool output - always provide your reasoning and interpretation
+7. If a tool returns data, explain what the data shows and answer the user's original question
 
-IMPORTANT: You are limited to exactly ONE tool call per user request. Make it count.
+PARAMETER EXTRACTION RULES:
+- "skip first X" means skip: X
+- "fetch/get Y items/products" means limit: Y
+- "starting from Nth" means skip: N-1
+
+IMPORTANT: Make ONE tool call with the correct arguments, then provide a reasoned response based on the results.
 
 When a tool is unavailable or returns an error:
 - Acknowledge the limitation briefly
@@ -247,8 +253,8 @@ Be helpful and accurate in your responses.`;
           agent,
           tools: this.langChainTools,
           verbose: false,
-          maxIterations: 1, // Limit to single tool call to prevent chaining
-          returnIntermediateSteps: false
+          maxIterations: 2, // Allow for tool call + LLM reasoning
+          returnIntermediateSteps: true // Capture tool results for debugging
         });
 
         console.log('🚀 Invoking agent executor with input:', input);
@@ -256,15 +262,39 @@ Be helpful and accurate in your responses.`;
           input: input
         });
         console.log('🎯 Agent execution completed. Output:', result.output);
+        console.log('🔍 Intermediate steps:', result.intermediateSteps);
 
-        // Check if the agent stopped due to max iterations
-        if (!result.output || result.output?.trim() === '') {
-          console.log('⚠️ Agent may have stopped due to max iterations, using tool results');
-          // Try to extract meaningful response from intermediate steps if available
-          return 'I was able to execute the requested action, but the response processing was incomplete. Please check the tool execution logs above for the actual results.';
+        // If we have a proper output from the LLM, use it (this includes LLM reasoning)
+        if (result.output && result.output.trim() !== '') {
+          console.log('✅ Returning LLM-generated response:', result.output);
+          return result.output;
         }
 
-        return result.output;
+        // Only fall back to tool results if LLM didn't provide output
+        if (result.intermediateSteps && result.intermediateSteps.length > 0) {
+          const lastStep = result.intermediateSteps[result.intermediateSteps.length - 1];
+          if (lastStep && lastStep.observation) {
+            console.log('⚠️ LLM provided no output, falling back to raw tool result:', lastStep.observation);
+
+            // Try to parse if it's a JSON string with error
+            try {
+              const parsed = JSON.parse(lastStep.observation);
+              if (parsed.error) {
+                console.log('⚠️ Tool returned error:', parsed.message);
+                return `Tool execution failed: ${parsed.message}`;
+              }
+            } catch {
+              // Not JSON or not an error, treat as successful result
+            }
+
+            // Return raw tool result as last resort
+            return `Tool executed successfully. Result: ${lastStep.observation}`;
+          }
+        }
+
+        // Fallback if no tool results and no output
+        console.log('⚠️ No usable results from agent execution');
+        return 'I was able to execute the requested action, but the response processing was incomplete. Please check the tool execution logs above for the actual results.';
       } else {
         // Fallback to simple prompt when no tools available
         console.log('� No tools available, using simple prompt...');
