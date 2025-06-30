@@ -91,14 +91,12 @@ async function sendMessage() {
   const responseText = document.getElementById('responseText');
   
   const message = messageInput.value.trim();
-  const systemPrompt = systemPromptInput.value.trim();
   
   if (!message) {
     alert('Please enter a message');
     return;
   }
 
-  // Show loading state
   sendBtn.disabled = true;
   sendBtn.textContent = 'Sending...';
   responseDiv.classList.add('show');
@@ -107,10 +105,6 @@ async function sendMessage() {
   
   try {
     const requestBody = { message };
-    if (systemPrompt) {
-      requestBody.systemPrompt = systemPrompt;
-    }
-    
     const response = await fetch(`${SERVER_URL}/chat`, {
       method: 'POST',
       headers: {
