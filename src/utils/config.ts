@@ -11,6 +11,7 @@ export interface AgentConfig {
   temperature?: number;
   maxTokens?: number;
   apiKey?: string;
+  deepLLMModel?: string;
 }
 
 /**
@@ -20,7 +21,8 @@ export const DEFAULT_CONFIG: Required<AgentConfig> = {
   modelName: process.env.MODEL_NAME || 'gpt-4.1-nano',
   temperature: parseFloat(process.env.TEMPERATURE || '0.7'),
   maxTokens: parseInt(process.env.MAX_TOKENS || '1000', 10),
-  apiKey: process.env.OPENAI_API_KEY || ''
+  apiKey: process.env.OPENAI_API_KEY || '',
+  deepLLMModel: process.env.DEEP_LLM_MODEL || 'gpt-4.1'
 };
 
 /**

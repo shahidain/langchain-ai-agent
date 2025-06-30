@@ -41,12 +41,20 @@ export class Agent {
   private selectTool = async(input: string) => {
     await this.updateAvailableTools();
     const toolList = this.tools.map(t => `- ${t.name}: ${t.description}`).join('\n');
-    const systemPrompt = `You are an AI assistant. You have access to the following MCP tools:
+    const systemPrompt = `You are an AI router. You have access to the following MCP tools:
     ${toolList}
-    Given a user request, select the most appropriate tool and extract the correct arguments.
+    Given a user request, select the only one most appropriate tool and extract the correct arguments.
     Return a JSON object in this format:{"tool": "<tool_name>","args": {}}
     If no tool is available then reply your best capable answer`;
-    const response = await this.llm.invoke([
+
+    const selectToolLLM = new ChatOpenAI({
+      modelName: DEFAULT_CONFIG.deepLLMModel,
+      temperature: 0,
+      openAIApiKey: DEFAULT_CONFIG.apiKey,
+      maxTokens: DEFAULT_CONFIG.maxTokens
+    });
+
+    const response = await selectToolLLM.invoke([
       {
         role: 'system',
         content: systemPrompt
