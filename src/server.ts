@@ -53,7 +53,7 @@ app.post('/chat', async(req, res) => {
     }
 
     let response: string | null;
-    response = await agent.processQuery(message);
+    response = await agent.processInput(message);
 
     res.json({
       message: message,

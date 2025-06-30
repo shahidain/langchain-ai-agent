@@ -1,21 +1,15 @@
 import { ChatOpenAI } from '@langchain/openai';
-import { ChatPromptTemplate } from '@langchain/core/prompts';
-import { StringOutputParser } from '@langchain/core/output_parsers';
-import { DynamicStructuredTool } from '@langchain/core/tools';
-// import { AgentExecutor, createToolCallingAgent } from 'langchain/agents';
 import { DEFAULT_CONFIG } from '../utils/config';
-import { getMCPClient } from '../mcp/mcp-client';
+import { getMCPClient, mcpClient } from '../mcp/mcp-client';
 import { MCPTool } from '../mcp/tools';
-import { z, ZodObject } from 'zod';
+import { RunnableSequence } from '@langchain/core/runnables';
 
 /**
  * A minimal AI Agent using LangChain and OpenAI
  */
 export class Agent {
   private llm: ChatOpenAI;
-  private outputParser: StringOutputParser;
   private tools: MCPTool[] = [];
-  private langChainTools: DynamicStructuredTool[] = [];
 
   constructor() {
     // Initialize the OpenAI LLM
@@ -24,255 +18,83 @@ export class Agent {
       temperature: DEFAULT_CONFIG.temperature,
       openAIApiKey: DEFAULT_CONFIG.apiKey,
       maxTokens: DEFAULT_CONFIG.maxTokens
-    });    // Initialize the output parser
-    this.outputParser = new StringOutputParser();
+    });
   }
   /**
    * Update available tools from MCP client
-   */
+  */
   private async updateAvailableTools(): Promise<void> {
     try {
       const mcpClient = getMCPClient();
       if (mcpClient && mcpClient.isConnectedToMCP()) {
         this.tools = mcpClient.getAvailableTools();
-        this.langChainTools = this.convertMCPToolsToLangChain();
-        console.log(`🔧 Agent updated with ${this.tools.length} MCP tools`);
       } else {
         this.tools = [];
-        this.langChainTools = [];
         console.log('⚠️ MCP client not connected, no tools available');
       }
     } catch (error) {
       console.error('❌ Failed to update available tools:', error);
       this.tools = [];
-      this.langChainTools = [];
     }
   }
-  /**
-   * Parse arguments based on tool schema
-   */
-  private parseArgumentsWithSchema(input: string, toolSchema: any): any {
-    console.log(`🔍 Parsing input: "${input}" with schema:`, toolSchema);
 
-    // First, try to parse as JSON
+  private selectTool = async(input: string) => {
+    await this.updateAvailableTools();
+    const toolList = this.tools.map(t => `- ${t.name}: ${t.description}`).join('\n');
+    const systemPrompt = `You are an AI assistant. You have access to the following MCP tools:
+    ${toolList}
+    Given a user request, select the most appropriate tool and extract the correct arguments.
+    Return a JSON object in this format:{"tool": "<tool_name>","args": {}}
+    If no tool is available then reply your best capable answer`;
+    const response = await this.llm.invoke([
+      {
+        role: 'system',
+        content: systemPrompt
+      },
+      {
+        role: 'user',
+        content: input
+      }
+    ]);
     try {
-      const parsedInput = JSON.parse(input);
-      console.log('📋 Input is valid JSON:', parsedInput);
-      // Ensure we return an object for MCP
-      if (typeof parsedInput === 'object' && parsedInput !== null) {
-        return parsedInput;
-      }
-    } catch {
-      // Input is not JSON, need to map to schema
-      console.log('📋 Input is not JSON, mapping to schema...');
-    }
-
-    // If not JSON, analyze the schema to determine how to structure the input
-    if (!toolSchema || !toolSchema.properties) {
-      console.log('⚠️ No schema properties found, defaulting to {id: input}');
-      // Default fallback - assume it's an ID since that's most common
-      const trimmedInput = input.trim();
-      if (/^\d+$/.test(trimmedInput)) {
-        return { id: parseInt(trimmedInput, 10) };
-      }
-      return { id: trimmedInput };
-    }
-
-    const properties = toolSchema.properties;
-    const propertyNames = Object.keys(properties);
-    console.log('📋 Schema properties:', propertyNames);
-
-    // If schema has only one property, map the input to that property
-    if (propertyNames.length === 1) {
-      const primaryParam = propertyNames[0];
-      const primaryParamType = properties[primaryParam].type;
-
-      console.log(`📋 Mapping input to primary parameter: ${primaryParam} (type: ${primaryParamType})`);
-
-      // Convert input to appropriate type
-      let value: any = input.trim();
-      if (primaryParamType === 'number' || primaryParamType === 'integer') {
-        value = parseInt(value, 10);
-      } else if (primaryParamType === 'boolean') {
-        value = value.toLowerCase() === 'true';
-      }
-
-      return { [primaryParam]: value };
-    }
-
-    // If multiple properties, look for common parameter names
-    const commonParams = ['id', 'query', 'input', 'text', 'message'];
-    for (const param of commonParams) {
-      if (properties[param]) {
-        console.log(`📋 Mapping input to common parameter: ${param}`);
-        let value: any = input.trim();
-        const paramType = properties[param].type;
-
-        if (paramType === 'number' || paramType === 'integer') {
-          value = parseInt(value, 10);
-        } else if (paramType === 'boolean') {
-          value = value.toLowerCase() === 'true';
-        }
-
-        return { [param]: value };
-      }
-    }
-
-    // Fallback: use the first property
-    const firstParam = propertyNames[0];
-    console.log(`📋 Fallback: mapping input to first parameter: ${firstParam}`);
-    return { [firstParam]: input?.trim() };
-  }
-
-  /**
-   * Convert MCP tools to LangChain DynamicStructuredTool
-   */
-  private convertMCPToolsToLangChain(): DynamicStructuredTool[] {
-    return this.tools.map(mcpTool => {
-      const zodSchema = this.jsonSchemaToZod(mcpTool.inputSchema);
-      return new DynamicStructuredTool({
-        name: mcpTool.name,
-        description: mcpTool.description,
-        schema: zodSchema,
-        func: async(input: any) => {
-          const callId = Date.now() + Math.random().toString(36).substr(2, 9);
-          try {
-            console.log(`🔧 [${callId}] Invoking MCP tool: ${mcpTool.name} with structured input:`, input);
-            const mcpClient = getMCPClient();
-            if (!mcpClient) {
-              throw new Error('MCP client not available');
-            }
-
-            if (!mcpClient.isConnectedToMCP()) {
-              throw new Error('MCP client not connected');
-            }
-
-            // Input is already parsed by Zod schema, use it directly
-            console.log(`📋 [${callId}] Using structured args for ${mcpTool.name}:`, input);
-
-            console.log(`📋 [${callId}] Calling tool with args:`, input);
-            const result = await mcpClient.callTool(mcpTool.name, input);
-            console.log(`✅ [${callId}] Tool ${mcpTool.name} result:`, result);
-
-            // Return result as string for the agent
-            if (typeof result === 'string') {
-              return result;
-            } else {
-              return JSON.stringify(result, null, 2);
-            }
-          } catch (error) {
-            console.error(`❌ [${callId}] Tool '${mcpTool.name}' failed:`, error);
-
-            // Log the error but don't throw - let the agent continue
-            const errorMessage = error instanceof Error ? error.message : String(error);
-            console.log(`⚠️ [${callId}] Continuing without tool result due to: ${errorMessage}`);
-
-            // Return a structured error response that the agent can understand
-            return JSON.stringify({
-              error: true,
-              message: `Tool '${mcpTool.name}' is currently unavailable`,
-              details: errorMessage,
-              suggestion: 'Please try your request without using this specific tool, or try again later.'
-            });
-          }
-        }
-      });
-    });
-  }
-
-  /**
-   * Build system prompt with available MCP tools
-   */
-  private buildSystemPromptWithTools(): string {
-    // Base system prompt when no tools are available
-    const basePrompt = 'You are a helpful AI assistant.';
-
-    // If no tools available, return base prompt
-    if (!this.tools || this.tools.length === 0) {
-      console.log('🔧 Building system prompt: No tools available');
-      return basePrompt;
-    }    // Build enhanced prompt with tools information
-    const detailedToolsList = this.tools.map(tool => `- ${tool.name}: ${tool.description}`).join('\n');
-
-    console.log(`🔧 Building system prompt with ${this.tools.length} tools`);
-    console.log(`📋 Detailed tools list:\n${detailedToolsList}`);
-
-    const systemPrompt = `You are a helpful AI assistant with access to various tools through an MCP (Model Context Protocol) server.
-
-You have access to the following tools. Use them when they can help answer the user's question:
-${detailedToolsList}
-
-CRITICAL INSTRUCTIONS:
-1. You can ONLY call ONE tool per request - never call multiple tools or retry with different arguments
-2. Carefully parse the user's request to extract the correct parameters BEFORE making the tool call
-3. If the user says "fetch 15 products and skip first 5", use: {{"skip": 5, "limit": 15}}
-4. If the user says "get 8 products starting from 6th", use: {{"skip": 5, "limit": 8}}
-5. After calling a tool and getting results, provide a thoughtful analysis and answer based on those results
-6. Do NOT return raw tool output - always provide your reasoning and interpretation
-7. If a tool returns data, explain what the data shows and answer the user's original question
-
-PARAMETER EXTRACTION RULES:
-- "skip first X" means skip: X
-- "fetch/get Y items/products" means limit: Y
-- "starting from Nth" means skip: N-1
-
-IMPORTANT: Make ONE tool call with the correct arguments, then provide a reasoned response based on the results.
-
-When a tool is unavailable or returns an error:
-- Acknowledge the limitation briefly
-- Do NOT attempt to call other tools as alternatives
-- Provide a direct response based on the available information
-
-Be helpful and accurate in your responses.`;
-
-    return systemPrompt;
-  }  /**
-   * Process a user input and return a response
-   */
-  async processQuery(input: string): Promise<string | null> {
-    try {
-      await this.updateAvailableTools();
-      const toolList = this.tools.map(t => `- ${t.name}: ${t.description}`).join('\n');
-      const systemPrompt = `You are an AI assistant. You have access to the following MCP tools:
-      ${toolList}
-      Given a user request, select the most appropriate tool and extract the correct arguments.
-      Return a JSON object in this format:{{"tool": "<tool_name>","args": {{ ... }}}}
-      If no tool is available then reply your best capable answer`;
-
-      const llm = new ChatOpenAI({ temperature: 0 });
-      const prompt = ChatPromptTemplate.fromMessages([
-        ['system', systemPrompt],
-        ['human', '{input}']
-      ]);
-      const outputParser = new StringOutputParser();
-      const chain = prompt.pipe(llm).pipe(outputParser);
-      const llmResponse = await chain.invoke({ input });
-      return llmResponse;
+      const content = JSON.parse(response.content as string);
+      return { tool: content.tool, args: content.args, input };
     } catch (error) {
-      console.error('Error processing input:', error);
-      return null;
+      console.info('No tool avaialble to process message, continuing with LLM response');
+      return { tool: undefined, args: undefined, input, response: response.content as string };
     }
-  }
+  };
 
-  /**
-   * Process input with custom system prompt
-   */
-  async processWithCustomPrompt(input: string, systemPrompt: string): Promise<string> {
+  private runTool = async({ tool, args, input, response }: { tool: string, args: Record<string, any>, input: string, response: string }) => {
+    console.log(`🔧 Received tool: ${tool} with args:`, args);
+    if (!tool || this.tools.some(t => t.name === tool) === false)
+      return { result: response, input };
+    const result = await mcpClient?.callTool(tool, args);
+    return { result: result?.content[0].text, input };
+  };
+
+  private finalLLM = async({ result, input }: { result: string, input: string }) => {
+    const prompt = `You are an expert data converter, convert provided data as user has instructed. data: ${result}`;
+    const response = await this.llm.invoke([
+      { role: 'system', content: prompt },
+      { role: 'user', content: input }
+    ]);
+    return response.content;
+  };
+
+  private pipeline = RunnableSequence.from([
+    this.selectTool,
+    this.runTool,
+    this.finalLLM
+  ]);
+
+  async processInput(input: string): Promise<string | null> {
     try {
-      const promptTemplate = ChatPromptTemplate.fromTemplate(
-        '{systemPrompt}\n\n{input}'
-      );
-
-      const chain = promptTemplate.pipe(this.llm).pipe(this.outputParser);
-      const response = await chain.invoke({
-        systemPrompt: systemPrompt,
-        input: input
-      });
-
-      return response;
+      const result = await this.pipeline.invoke(input);
+      return result as string;
     } catch (error) {
-      console.error('Error processing input with custom prompt:', error);
-      throw new Error(`Failed to process input: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      console.error('❌ Failed to process message:', error);
+      return error instanceof Error ? error.message : 'Unknown error occurred';
     }
   }
 
@@ -284,32 +106,5 @@ Be helpful and accurate in your responses.`;
       model: this.llm.modelName,
       temperature: this.llm.temperature
     };
-  }
-
-  jsonSchemaToZod(jsonSchema: any): ZodObject<any> {
-    const shape: Record<string, any> = {};
-    for (const [key, prop] of Object.entries(jsonSchema.properties || {})) {
-      const propObj = prop as any; // Type assertion to fix 'unknown' type
-      let field: any = propObj.type === 'string'
-        ? z.string()
-        : propObj.type === 'number'
-          ? z.number()
-          : propObj.type === 'boolean'
-            ? z.boolean()
-            : z.any();
-
-      if (propObj.description) {
-        field = field.describe(propObj.description);
-      }
-
-      if ((jsonSchema.required || []).includes(key)) {
-        // do nothing, already required
-      } else {
-        field = field.optional();
-      }
-
-      shape[key] = field;
-    }
-    return z.object(shape);
   }
 }
