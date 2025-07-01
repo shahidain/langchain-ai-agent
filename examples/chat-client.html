@@ -32,11 +32,15 @@
       </div>
       
       <button type="button" onclick="sendMessage()" id="sendBtn">Send Message</button>
+      <button type="button" onclick="sendStreamingMessage()" id="streamBtn" class="stream-btn">Send Streaming</button>
     </div>
 
     <div id="response" class="response">
       <h3>Response:</h3>
       <div id="responseText" class="response-text"></div>
+      <div id="streamingStatus" class="streaming-status" style="display: none;">
+        <span class="typing-indicator">⚡ Streaming response...</span>
+      </div>
     </div>
   </div>
 

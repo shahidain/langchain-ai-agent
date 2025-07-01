@@ -145,6 +145,107 @@ async function sendMessage() {
   }
 }
 
+async function sendStreamingMessage() {
+  const messageInput = document.getElementById('message');
+  const streamBtn = document.getElementById('streamBtn');
+  const responseDiv = document.getElementById('response');
+  const responseText = document.getElementById('responseText');
+  const streamingStatus = document.getElementById('streamingStatus');
+  
+  const message = messageInput.value.trim();
+  
+  if (!message) {
+    alert('Please enter a message');
+    return;
+  }
+
+  streamBtn.disabled = true;
+  streamBtn.textContent = 'Streaming...';
+  responseDiv.classList.add('show');
+  responseDiv.className = 'response show';
+  responseText.innerHTML = `
+    <strong>Your Question:</strong><br>
+    ${escapeHtml(message)}<br><br>
+    <strong>AI Response:</strong><br>
+    <div class="markdown-content" id="streamingContent"></div>
+  `;
+  
+  streamingStatus.style.display = 'block';
+  
+  let accumulatedResponse = '';
+  
+  try {
+    const requestBody = { message };
+    const response = await fetch(`${SERVER_URL}/chat/stream`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(requestBody)
+    });
+    
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    
+    while (true) {
+      const { done, value } = await reader.read();
+      
+      if (done) {
+        break;
+      }
+      
+      const chunk = decoder.decode(value);
+      const lines = chunk.split('\n');
+      
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          try {
+            const data = JSON.parse(line.slice(6));
+            
+            if (data.type === 'chunk' && data.content) {
+              accumulatedResponse += data.content;
+              const streamingContent = document.getElementById('streamingContent');
+              if (streamingContent) {
+                // Parse accumulated response as markdown and update
+                streamingContent.innerHTML = marked.parse(accumulatedResponse);
+                // Auto-scroll to keep the latest content in view
+                streamingContent.scrollIntoView({ behavior: 'smooth', block: 'end' });
+              }
+            } else if (data.type === 'end') {
+              streamingStatus.style.display = 'none';
+            } else if (data.type === 'error') {
+              throw new Error(data.message);
+            }
+          } catch (parseError) {
+            // Ignore parsing errors for non-JSON lines
+            console.debug('Parse error for line:', line);
+          }
+        }
+      }
+    }
+    
+  } catch (error) {
+    responseDiv.className = 'response show error';
+    responseText.innerHTML = `
+      <strong>Error:</strong><br>
+      ${error.message}<br><br>
+      <strong>Troubleshooting:</strong><br>
+      • Make sure the server is running with: <code>npm run dev</code><br>
+      • Check that your OPENAI_API_KEY is set in the .env file<br>
+      • Verify the streaming endpoint is available at ${SERVER_URL}/chat/stream
+    `;
+  } finally {
+    // Reset button state
+    streamBtn.disabled = false;
+    streamBtn.textContent = 'Send Streaming';
+    streamingStatus.style.display = 'none';
+  }
+}
+
 // Allow Enter key to send message (Shift+Enter for new line)
 document.getElementById('message').addEventListener('keydown', function(e) {
   if (e.key === 'Enter' && !e.shiftKey) {
