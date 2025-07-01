@@ -71,6 +71,63 @@ app.post('/chat', async(req, res) => {
   }
 });
 
+// Streaming chat endpoint
+app.post('/chat/stream', async(req, res) => {
+  try {
+    const { message } = req.body;
+
+    // Validate request
+    if (!message) {
+      return res.status(400).json({
+        error: 'Message is required',
+        example: { message: 'Hello, how are you?' }
+      });
+    }
+
+    if (typeof message !== 'string') {
+      return res.status(400).json({
+        error: 'Message must be a string'
+      });
+    }
+
+    // Set SSE headers for streaming
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Headers': 'Content-Type'
+    });
+
+    // Send initial message
+    res.write('data: {"type": "start", "message": "Starting response..."}\n\n');
+
+    try {
+      // Stream the agent response
+      for await (const chunk of agent.processInputStream(message)) {
+        res.write(`data: {"type": "chunk", "content": ${JSON.stringify(chunk)}}\n\n`);
+      }
+
+      // Send completion message
+      res.write('data: {"type": "end", "message": "Response complete"}\n\n');
+    } catch (streamError) {
+      console.error('Streaming error:', streamError);
+      res.write(`data: {"type": "error", "message": ${JSON.stringify(streamError instanceof Error ? streamError.message : 'Streaming error occurred')}}\n\n`);
+    }
+
+    res.end();
+
+  } catch (error) {
+    console.error('Stream endpoint error:', error);
+    if (!res.headersSent) {
+      res.status(500).json({
+        error: 'Internal server error',
+        message: error instanceof Error ? error.message : 'Unknown error occurred'
+      });
+    }
+  }
+});
+
 // Get agent info endpoint
 app.get('/agent/info', (req, res) => {
   try {

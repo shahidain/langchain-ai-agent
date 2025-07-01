@@ -106,6 +106,41 @@ export class Agent {
     }
   }
 
+  async *processInputStream(input: string): AsyncGenerator<string, void, unknown> {
+    async function* errorGen(message: string) { yield message; }
+
+    try {
+      // Execute tool selection
+      const selectResult = await this.selectTool(input);
+
+      // Execute tool run
+      const runResult = await this.runTool({
+        tool: selectResult.tool,
+        args: selectResult.args,
+        input: selectResult.input,
+        response: selectResult.response ?? ''
+      });
+
+      // Stream the final LLM response
+      const prompt = `You are an expert data converter, convert provided data as user has instructed. data: ${runResult.result}`;
+      const stream = await this.llm.stream([
+        { role: 'system', content: prompt },
+        { role: 'user', content: runResult.input }
+      ]);
+
+      for await (const chunk of stream) {
+        if (typeof chunk === 'string') {
+          yield chunk;
+        } else if (chunk && typeof chunk.content === 'string') {
+          yield chunk.content;
+        }
+      }
+    } catch (error) {
+      console.error('❌ Failed to process message (stream):', error);
+      yield* errorGen(error instanceof Error ? error.message : 'Unknown error occurred');
+    }
+  }
+
   /**
    * Get the model configuration
    */
